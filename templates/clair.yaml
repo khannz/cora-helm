@@ -1,0 +1,188 @@
+---
+# MARK: ConfigMap 'cora-clair'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "common.fullname" . }}-clair-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clair
+data:
+  config.yaml: |-
+    http_listen_addr: ":8080"
+    introspection_addr: ":8081"
+    log_level: "debug"
+    metrics:
+      name: "prometheus"
+      prometheus:
+        endpoint: /metrics
+    indexer:
+      connstring: postgres://postgres:{{ .Values.clair.config.databasePassword }}@{{ include "common.fullname" . }}-clair-db:5432/postgres?sslmode=disable
+      scanlock_retry: 10
+      layer_scan_concurrency: 5
+      migrations: true
+      scanner: {}
+      airgap: false
+    matcher:
+      connstring: postgres://postgres:{{ .Values.clair.config.databasePassword }}@{{ include "common.fullname" . }}-clair-db:5432/postgres?sslmode=disable
+      indexer_addr: localhost:8080
+      migrations: true
+      period: 6h
+      #period: 24
+      disable_updaters: false
+      update_retention: 2
+    notifier:
+      connstring: postgres://postgres:{{ .Values.clair.config.databasePassword }}@{{ include "common.fullname" . }}-clair-db:5432/postgres?sslmode=disable
+      migrations: true
+      indexer_addr: localhost:8080
+      matcher_addr: localhost:8080
+      poll_interval: 5m
+      delivery_interval: 1m
+      disable_summary: false
+      webhook: null
+      amqp: null
+      stomp: null
+    matchers:
+      names:
+        #- alpine-matcher
+        #- aws-matcher
+        #- debian-matcher
+        #- gobin
+        #- java-maven
+        #- oracle
+        #- photon
+        - python
+        - rhel
+        - rhel-container-matcher
+        #- suse
+        #- ubuntu-matcher
+      config: {}
+    updaters:
+      sets:
+        #- alpine
+        #- aws
+        #- debian
+        #- oracle
+        - osv
+        #- photon
+        - rhcc
+        - rhel
+        #- suse
+        #- ubuntu
+      config: null
+
+---
+# MARK: Service 'cora-clair'
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "common.fullname" . }}-clair
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clair
+spec:
+  selector:
+    {{- include "common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: clair
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8080
+      protocol: TCP
+      targetPort: http
+    - name: introspection
+      port: 8081
+      protocol: TCP
+      targetPort: introspection
+
+---
+# MARK: Deployment 'cora-clair'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "common.fullname" . }}-clair
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clair
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: clair
+  template:
+    metadata:
+      annotations:
+        checksum/config-clair: {{ .Values.clair.config | toYaml | sha256sum }}
+      labels:
+        {{- include "common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: clair
+    spec:
+      containers:
+        - name: clair
+          image: "{{ .Values.clair.image.repository }}:{{ .Values.clair.image.tag }}"
+          imagePullPolicy: "{{ .Values.clair.image.pullPolicy }}"
+          env:
+            - name: CLAIR_MODE
+              value: combo
+          ports:
+            - name: http
+              protocol: TCP
+              containerPort: 8080
+            - name: introspection
+              protocol: TCP
+              containerPort: 8081
+          resources:
+            requests:
+              cpu: 1300m
+              memory: 1600Mi
+          volumeMounts:
+            - mountPath: /var/tmp
+              name: indexer-arena
+            - mountPath: /config/
+              name: config
+              readOnly: true
+            - mountPath: /etc/pki/ca-trust/source/anchors
+              name: ca-anchors
+            - mountPath: /etc/pki/ca-trust/extracted
+              name: ca-extracted
+      initContainers:
+        - name: update-ca
+          image: "{{ .Values.clair.image.repository }}:{{ .Values.clair.image.tag }}"
+          imagePullPolicy: "{{ .Values.clair.image.pullPolicy }}"
+          command:
+            - /bin/bash
+            - -c
+            - |
+              update-ca-trust extract
+              cp -a /etc/pki/ca-trust/extracted/* /mnt/pki/
+          resources:
+            requests:
+              cpu: 1300m
+              memory: 1600Mi
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - mountPath: /etc/pki/ca-trust/source/anchors
+              name: ca-anchors
+            - mountPath: /mnt/pki
+              name: ca-extracted
+      securityContext: {}
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "common.fullname" . }}-clair-config
+        - name: indexer-arena
+          emptyDir:
+            sizeLimit: 5Gi
+        - name: ca-anchors
+          secret:
+            secretName: {{ include "common.fullname" . }}-org-ca
+        - name: ca-extracted
+          emptyDir: {}

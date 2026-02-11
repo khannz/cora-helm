@@ -1,0 +1,99 @@
+---
+# MARK: Service 'cora-clair-db'
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "common.fullname" . }}-clair-db
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clair-db
+spec:
+  ports:
+    - name: pgsql
+      protocol: TCP
+      port: 5432
+      targetPort: pgsql
+  selector:
+    {{- include "common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: clair-db
+
+---
+# MARK: Deployment 'cora-clair-db'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "common.fullname" . }}-clair-db
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clair-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: clair-db
+  template:
+    metadata:
+      annotations:
+        checksum/config-clair: {{ .Values.clair.config | toYaml | sha256sum }}
+      labels:
+        {{- include "common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: clair-db
+    spec:
+      containers:
+        - name: clair-db
+          image: "{{ .Values.clair.db.image.repository }}:{{ .Values.clair.db.image.tag }}"
+          imagePullPolicy: "{{ .Values.clair.db.image.pullPolicy }}"
+          args:
+            - --shared_buffers=128MB
+            - --max_connections=300
+          env:
+            - name: POSTGRES_PASSWORD
+              value: "{{ .Values.clair.config.databasePassword }}"
+          ports:
+            - name: pgsql
+              protocol: TCP
+              containerPort: 5432
+          resources:
+            requests:
+              cpu: 1000m
+              memory: 1000Mi
+          volumeMounts:
+            - mountPath: /var/lib/postgresql/data
+              name: pgdata
+            - mountPath: /dev/shm
+              name: dshm
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - postgres
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - postgres
+            failureThreshold: 3
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+      securityContext: {}
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
+      volumes:
+        - name: pgdata
+          emptyDir: {}
+        - name: dshm
+          emptyDir:
+            medium: Memory
