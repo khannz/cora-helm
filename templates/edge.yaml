@@ -1,0 +1,169 @@
+---
+# MARK: ConfigMap 'cora-edge-config'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "common.fullname" . }}-edge-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: edge
+data:
+  API_EXTERNAL: https://{{ .Values.common.apiHost }}:{{ default 443 .Values.common.apiPort }}/pipeline/restapi/
+  CP_API_JWT_ADMIN: {{ .Values.common.adminJwt }}
+  CP_API_SRV_EXTERNAL_HOST: {{ .Values.common.apiHost }}
+  CP_API_SRV_EXTERNAL_PORT: {{ default 443 .Values.common.apiPort | quote }}
+  CP_API_SRV_INTERNAL_HOST: {{ .Values.common.apiHost }}
+  CP_API_SRV_INTERNAL_PORT: {{ default 443 .Values.common.apiPort | quote }}
+  CP_DAV_EXTERNAL_MAPPING_URL: https://{{ .Values.edge.config.host }}:{{ default 443 .Values.edge.config.port }}/webdav/
+  CP_DOCKER_EXTERNAL_HOST: {{ .Values.common.dockerHost }}
+  CP_DOCKER_INTERNAL_HOST: {{ .Values.common.dockerHost }}
+  CP_DOCKER_INTERNAL_PORT: {{ default 443 .Values.common.dockerPort | quote }}
+  CP_EDGE_REGION: {{ .Values.common.region }}
+  CP_PREF_UI_PIPELINE_DEPLOYMENT_NAME: {{ .Values.common.deploymentName }}
+
+  CP_API_SRV_CERT_DIR: /opt/api/pki
+  CP_DAV_AUTH_URL_PATH: webdav/auth-sso
+  CP_DAV_EXTRA_INTERNAL_PORT: "31086"
+  CP_DAV_INSTRUCTIONS_URL: ""
+  CP_DAV_INTERNAL_HOST: cp-dav.default.svc.cluster.local
+  CP_DAV_INTERNAL_PORT: "31085"
+  CP_EDGE_CLUSTER_RESOLVER_TIMEOUT_SEC: "10"
+  CP_EDGE_CONNECT_PROXY_AUTHENTICATION_ENABLED: "false"
+  CP_EDGE_INGRESS_API_CONNECT_TIMEOUT: 60s
+  CP_EDGE_INGRESS_API_READ_TIMEOUT: 60s
+  CP_EDGE_INGRESS_API_SEND_TIMEOUT: 60s
+  CP_EDGE_INVALIDATE_AUTH_PATH: /invalidate
+  CP_EDGE_ROOT_PROXY_PASS_DESTINATION: ""
+  CP_EDGE_SSL_CIPHERS: EECDH+AESGCM:EDH+AESGCM:AES256+EECDH:AES256+EDH
+  CP_EDGE_SSL_PROTOCOLS: TLSv1 TLSv1.1 TLSv1.2
+  CP_EDGE_WEB_CLIENT_MAX_SIZE: "0"
+  CP_KUBE_SERVICES_TYPE: ingress
+  CP_PREF_CLUSTER_PROXIES_DNS_POST: 10.96.0.10
+  CP_PREF_STORAGE_FSBROWSER_PORT: "8091"
+  CP_SEARCH_ELK_TYPE: opensearch
+  CP_SERVICES_ENABLED: cp-api-srv,cp-docker-registry,cp-edge,cp-clair,cp-docker-comp
+  JWT_PUB_KEY: /etc/nginx/jwt-public-key.pem
+  NODE_OPTIONS: --max_old_space_size=4096
+  NODE_TLS_REJECT_UNAUTHORIZED: "0"
+
+---
+# MARK: Service 'cora-edge'
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "common.fullname" . }}-edge
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: edge
+    cloud-pipeline/role: EDGE
+    cloud-pipeline/region: us-east-1
+spec:
+  type: ClusterIP
+  {{- with .Values.edge.externalIPs }}
+  externalIPs:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  ports:
+    - name: https
+      protocol: TCP
+      port: 443
+      targetPort: 8080
+    - name: web
+      protocol: TCP
+      port: 31091
+      targetPort: 8181
+    - name: connect
+      protocol: TCP
+      port: 31092
+      targetPort: 8282
+  selector:
+    {{- include "common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: edge
+
+---
+# MARK: Deployment 'cora-edge'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "common.fullname" . }}-edge
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: edge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: edge
+  template:
+    metadata:
+      annotations:
+        checksum/config-common: {{ .Values.common | toYaml | sha256sum }}
+        checksum/config-edge: {{ .Values.edge.config | toYaml | sha256sum }}
+      labels:
+        {{- include "common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: edge
+    spec:
+      containers:
+        - name: edge
+          image: "{{ .Values.edge.image.repository }}:{{ .Values.edge.image.tag }}"
+          imagePullPolicy: {{ .Values.edge.image.pullPolicy }}
+          command:
+            - /init
+          envFrom:
+            - configMapRef:
+                name: {{ include "common.fullname" . }}-edge-config
+          resources:
+            requests:
+              cpu: 50m
+              memory: 150Mi
+            limits:
+              cpu: 50m
+              memory: 150Mi
+          volumeMounts:
+            - mountPath: /etc/nginx/jwt-public-key.pem
+              name: jwt
+              subPath: jwt-public-key.pem
+              readOnly: true
+            - mountPath: /etc/api/pki
+              name: tls
+              readOnly: true
+            - mountPath: /etc/docker-registry/pki
+              name: tls
+              readOnly: true
+            - mountPath: /etc/edge/pki
+              name: tls
+              readOnly: true
+            - mountPath: /var/log
+              name: logs
+      nodeSelector:
+        cloud-pipeline/cp-edge: "true"
+        cloud-pipeline/region: us-east-1
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
+      volumes:
+        - name: tls
+          secret:
+            secretName: {{ include "common.fullname" . }}-tls
+            items:
+              - key: tls.crt
+                path: ssl-public-cert.pem
+              - key: tls.key
+                path: ssl-private-key.pem
+              - key: tls.crt
+                path: docker-public-cert.pem
+              - key: tls.key
+                path: docker-private-key.pem
+        - name: jwt
+          secret:
+            secretName: {{ include "common.fullname" . }}-auth
+            items:
+              - key: jwt.key.public
+                path: jwt-public-key.pem
+        - name: logs
+          emptyDir:
+            sizeLimit: 1Gi

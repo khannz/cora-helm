@@ -1,0 +1,382 @@
+---
+# MARK: ConfigMap 'cora-api-config'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "common.fullname" . }}-api-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+data:
+  CP_API_JWT_ADMIN: {{ .Values.common.adminJwt }}
+  CP_API_SRV_EXTERNAL_HOST: {{ .Values.common.apiHost }}
+  CP_API_SRV_EXTERNAL_PORT: {{ default 443 .Values.common.apiPort | quote }}
+  CP_API_SRV_SAML_ALLOW_ANONYMOUS_USER: {{ .Values.api.config.saml.allowAnon | quote }}
+  CP_API_SRV_SAML_AUTO_USER_CREATE: {{ .Values.api.config.saml.autoUserCreate }}
+  CP_API_SRV_SAML_USER_ATTRIBUTES: {{ .Values.api.config.saml.userAttr }}
+  CP_API_SRV_SSO_ENDPOINT_ID: https://{{ .Values.common.apiHost }}/pipeline
+  CP_AWS_INSTANCE_PROFILE_ARN: {{ .Values.api.config.aws.instanceProfileArn | quote }}
+  CP_AWS_KMS_ARN: {{ .Values.api.config.aws.kmsArn | quote }}
+  CP_DEFAULT_ADMIN_EMAIL: {{ .Values.common.adminEmail }}
+  CP_DEFAULT_ADMIN_NAME: {{ .Values.common.adminName }}
+  CP_PREF_UI_PIPELINE_DEPLOYMENT_NAME: {{ .Values.common.deploymentName }}
+  PSG_HOST: {{ .Values.api.config.db.host }}
+  PSG_PORT: {{ default 5432 .Values.api.config.db.port | quote }}
+  PSG_DB: {{ .Values.api.config.db.db }}
+  PSG_USER: {{ .Values.api.config.db.user }}
+  PSG_PASS: {{ .Values.api.config.db.pass | quote }}
+  PSG_CONNECT_PARAMS: {{ .Values.api.config.db.connParams | quote }}
+  CP_API_SRV_INTERNAL_HOST: {{ include "common.fullname" . }}-api.{{ .Release.Namespace }}.svc.cluster.local
+  CP_API_SRV_INTERNAL_PORT: "31080"
+  CP_KUBE_NAMESPACE: {{ .Release.Namespace }}
+  CP_CLOUD_REGION_ID: {{ .Values.common.region }}
+  CP_EDGE_EXTERNAL_HOST: {{ .Values.edge.config.host }}
+  CP_EDGE_EXTERNAL_PORT: {{ default 443 .Values.edge.config.port | quote }}
+
+  CP_KUBE_EXTERNAL_HOST: {{ .Values.api.config.kube.externalHost }}
+  CP_KUBE_EXTERNAL_PORT: {{ default 6443 .Values.api.config.kube.externalPort | quote }}
+  CP_KUBE_KUBEADM_TOKEN: {{ .Values.api.config.kube.kubeadmToken }}
+  CP_KUBE_KUBEADM_CERT_HASH: {{ .Values.api.config.kube.kubeadmCertHash }}
+  CP_KUBE_NODE_TOKEN: {{ .Values.api.config.kube.nodeToken }}
+
+  CP_API_SRV_CERT_DIR: /certs
+  CP_API_SRV_FED_META_DIR: /certs
+  CP_API_SRV_IDP_CERT_PATH: /certs
+  CP_COMMON_CERT_DIR: /certs
+  CP_IDP_CERT_DIR: /certs
+
+  CP_API_SRV_SSO_BINDING: urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST
+  FLYWAY_SCHEMAS: pipeline
+
+  # those taken from original CM but never found in /init script
+  # it is prolly used inside Java runtime
+  CP_API_SECURITY_PUBLIC_URLS: /init.sh,/launch.sh,/launch.py,/PipelineCLI.tar.gz,/pipe-common.tar.gz,/commit-run-scripts/**,/pipe,/fsbrowser.tar.gz,/gpustat.tar.gz,/pipe.zip,/pipe.tar.gz,/pipe-el6,/pipe-el6.tar.gz,/pipe-osx,/pipe-osx.tar.gz,/pipe-osx-arm,/pipe-osx-arm.tar.gz,/cloud-data-linux.tar.gz,/cloud-data-win64.zip,/cloud-data-cli-linux,/cloud-data-cli-macos,/cloud-data-cli-win.exe,/fsautoscale.sh,/emergency_node_terminator.sh,/data-transfer-service.jar,/data-transfer-service-windows.zip,/data-transfer-service-linux.zip,/DeployDts.ps1,/deploy_dts.sh,/merck-ca.pem,/merck-ca.crt
+  CP_API_SRV_STATIC_DIR: /opt/api/static
+  CP_BILLING_CENTER_KEY: billing-group
+  CP_CLOUD_PLATFORM: aws
+  CP_CLUSTER_SSH_KEY: /opt/root/ssh/cora-dev.pem
+  CP_SECURITY_LOGS_ELASTIC_PREFIX: security_log
+  CP_PREF_TEMPLATES_DIRECTORY_EXT: /opt/api/ext/templates/pipe-templates
+  CP_PREF_TEMPLATES_FOLDER_DIRECTORY_EXT: /opt/api/ext/templates/folder-templates
+  CP_PREF_TEMPLATES_ERROR_PAGES_DIRECTORY_EXT: /opt/api/ext/templates/error-templates
+  CP_PREF_API_STATIC_DIRECTORY_EXT: /opt/api/ext/templates/static
+  CP_SEARCH_ELK_TYPE: opensearch
+
+---
+# MARK: ConfigMap 'cora-api-scripts'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "common.fullname" . }}-api-scripts
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+data:
+  init-api.sh: |
+    #!/usr/bin/env bash
+
+    function update_resources_templates {
+        local templates_key="$1"
+        local external_storage_var_name="$2"
+        local search_pattern="${3:-"config.json"}"
+        local properties_file="${4:-${CP_API_HOME}/config/application.properties}"
+
+        IFS="=" read -r param_key param_value <<< $(grep $templates_key < $properties_file)
+        # This is used to expand any variable name, that can be used in the application.properties file
+        param_value="$(envsubst <<< "$param_value")"
+
+        if [ -z "$param_key" ] || [ -z "$param_value" ] || [ ! -d "$param_value" ]; then
+            echo "$templates_key cannot be retrieved from $properties_file or that location does not exist (\"$param_value\""
+            return 1
+        fi
+
+        local external_storage="${!external_storage_var_name}"
+        # Import external templates if provided, this overrides the default templates backed into the docker image
+        if [ "$external_storage" ]; then
+            is_dir_empty "$external_storage"
+            if [ $? -eq 0 ]; then
+                echo "External configuration for $templates_key template is set, but the $external_storage directory is empty or does not exist. External templates WILL NOT be applied"
+            else
+                echo "Replacing $templates_key templates from $external_storage to $param_value"
+                rm -rf $param_value/*
+                \cp -r $external_storage/* $param_value/
+            fi
+        fi
+
+        echo "Updating configuration files (properties_file: ${properties_file}, templates_key: ${templates_key}, search_pattern: ${search_pattern})"
+        for config_json_file in $(find "$param_value" -type f -name "$search_pattern"); do
+            local config_json_file_contents="$(envsubst < "$config_json_file")"
+            cat <<< "$config_json_file_contents" > "$config_json_file"
+            echo "$config_json_file"
+        done
+        echo
+    }
+
+    # set -euo pipefail
+
+    # CP_API_HOME defined inside cp-api-srv docker image, so this is more like hint
+    export CP_API_HOME=/opt/api
+
+    export CP_API_JWT_KEY_PUBLIC=$(</certs/jwt.key.public)
+    export CP_API_JWT_KEY_PRIVATE=$(</certs/jwt.key.private)
+
+    export CP_ERROR_REDIRECT_URL="${CP_ERROR_REDIRECT_URL:-https://$CP_API_SRV_EXTERNAL_HOST:$CP_API_SRV_EXTERNAL_PORT/pipeline/}"
+    export CP_ERROR_PLATFORM_NAME="${CP_ERROR_PLATFORM_NAME:-$CP_PREF_UI_PIPELINE_DEPLOYMENT_NAME}"
+    export CP_ERROR_SUPPORT_EMAIL="${CP_ERROR_SUPPORT_EMAIL:-$CP_DEFAULT_ADMIN_EMAIL}"
+
+    echo "[DEBUG] CP_API_SRV_SSO_ENDPOINT_ID: ${CP_API_SRV_SSO_ENDPOINT_ID}"
+    echo "[DEBUG] CP_API_SRV_SSO_BINDING: ${CP_API_SRV_SSO_BINDING}"
+
+    mkdir -p ${CP_API_HOME}/keystore
+
+    # Import SSL cert
+    keytool -importkeystore -deststorepass changeit \
+            -destkeypass changeit \
+            -destkeystore ${CP_API_HOME}/keystore/store.jks \
+            -srckeystore /certs/cp-api-srv-ssl.p12 \
+            -srcstoretype PKCS12 \
+            -srcstorepass changeit \
+            -alias ssl \
+            -noprompt
+    #
+    # if [ $? -ne 0 ]; then
+    #     echo "An error occured while importing SSL p12 key pair $CP_API_SRV_CERT_DIR/cp-api-srv-ssl.p12 into the API Service. Exiting"
+    #     exit 1
+    # fi
+
+    # Import SSO cert
+    keytool -importkeystore -deststorepass changeit \
+            -destkeypass changeit \
+            -destkeystore ${CP_API_HOME}/keystore/store.jks \
+            -srckeystore /certs/cp-api-srv-sso.p12 \
+            -srcstoretype PKCS12 \
+            -srcstorepass changeit \
+            -alias sso \
+            -noprompt
+    #
+    # if [ $? -ne 0 ]; then
+    #     echo "An error occured while importing SSO p12 key pair $CP_API_SRV_CERT_DIR/cp-api-srv-sso.p12 into the API Service. Exiting"
+    #     exit 1
+    # fi
+
+    # # FIXME: I don't think we need it for real
+    # ca_cert_path="$CP_COMMON_CERT_DIR/ca-public-cert.pem"
+    # if [ -f "$ca_cert_path" ]; then
+    #     echo "Importing CA cert into global java keystore"
+    #     /update-trust $ca_cert_path "cp-ca"
+    # fi
+
+    mkdir -p ${CP_API_HOME}/static
+
+    cp ${CP_API_HOME}/data-transfer-service.jar ${CP_API_HOME}/static/
+
+    openssl dgst \
+    -sha256 -hex -r \
+    -sign /certs/ssl-private-key.pem \
+    ${CP_API_HOME}/static/data-transfer-service.jar \
+    | awk '{print $1}' >${CP_API_HOME}/static/data-transfer-service.sign
+
+    echo "[INFO ] Importing API SSL cert into global java keystore"
+    cp ${CP_API_HOME}/data-transfer-service-linux.zip ${CP_API_HOME}/static/
+
+    /update-trust /certs/ssl-public-cert.pem "cp-api-srv"
+
+    keytool -import \
+            -keystore ${CP_API_HOME}/keystore/store.jks \
+            -storepass changeit \
+            -noprompt \
+            -alias idp \
+            -file /certs/idp-public-cert.pem
+
+    # echo "[DEBUG] List of all entries in keystore"
+    # keytool -list -v -keystore ${CP_API_HOME}/keystore/store.jks -storepass changeit
+
+    # Update pipe/folder/error templates with any specific values (e.g. instance/vm size)
+    update_resources_templates "templates.directory" "${CP_API_HOME}/ext/templates/pipe-templates" "config.json"
+    update_resources_templates "templates.folder.directory" "${CP_API_HOME}/ext/templates/folder-templates" "template.json"
+    if [ -d "${CP_API_HOME}/ext/templates/error-templates" ]; then
+        update_resources_templates "templates.error.pages.directory" "${CP_API_HOME}/ext/templates/error-templates" "*.html"
+    fi
+
+    if [ -d "${CP_API_HOME}/ext/templates/static" ]; then
+        echo "[INFO ] Importing additional static assets"
+        cp -r ${CP_API_HOME}/ext/templates/static/* ${CP_API_HOME}/static/
+    fi
+
+    if [ -z "${CP_API_JWT_ADMIN}" ]; then
+        CP_API_JWT_ADMIN=$(java  -jar /opt/api/jwt-generator.jar \
+                                --private $CP_API_SRV_CERT_DIR/jwt.key.private \
+                                --expires 94608000 \
+                                --claim user_id=1 \
+                                --claim user_name=$CP_DEFAULT_ADMIN_NAME \
+                                --claim role=ROLE_ADMIN \
+                                --claim group=ADMIN)
+    fi
+    export CP_API_LIVENESS_JWT_TOKEN=${CP_API_JWT_ADMIN}
+    envsubst '$CP_API_LIVENESS_JWT_TOKEN' < /liveness-api-srv-template.sh > /liveness-api-srv.sh
+    chmod +x /liveness-api-srv.sh
+
+    echo "[INFO ] Running main Java runtime"
+    java $CP_API_SRV_JAVA_OPTS -jar pipeline.jar $CP_API_SRV_JAVA_SPRING_OPTS
+  init-certs.sh: |
+    #!/usr/bin/env bash
+
+    cp /files-certs/tls.crt /certs/ssl-public-cert.pem
+    cp /files-certs/tls.key /certs/ssl-private-key.pem
+
+    openssl pkcs12 -export -in /files-certs/tls.crt -inkey /files-certs/tls.key -name ssl -password pass:changeit -out /certs/cp-api-srv-ssl.p12
+
+    openssl pkcs12 -export -in /files-certs/tls.crt -inkey /files-certs/tls.key -name sso -password pass:changeit -out /certs/cp-api-srv-sso.p12
+
+    cp /files-auth/jwt.key.* /certs/
+
+    cp /files-auth/federation.crt /certs/idp-public-cert.pem
+    cp /files-auth/federation-metadata.xml /certs/cp-api-srv-fed-meta.xml
+
+    ls -la /certs
+
+---
+# MARK: Service 'cora-api'
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "common.fullname" . }}-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      protocol: TCP
+      port: 8080
+      targetPort: 8080
+    - name: https
+      protocol: TCP
+      port: 443
+      targetPort: 8080
+  selector:
+    {{- include "common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+
+---
+# MARK: Deployment 'cora-api'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "common.fullname" . }}-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      annotations:
+        checksum/config-common: {{ .Values.common | toYaml | sha256sum }}
+        checksum/config-api: {{ .Values.api.config | toYaml | sha256sum }}
+      labels:
+        {{- include "common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+    spec:
+      containers:
+        - name: api-srv
+          image: {{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          command:
+            - /init
+          env:
+            - name: CP_API_CURRENT_POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: CP_API_CURRENT_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.nodeName
+          envFrom:
+            - configMapRef:
+                name: {{ include "common.fullname" . }}-api-config
+          ports:
+            - name: web
+              containerPort: 8080
+              protocol: TCP
+          resources: {}
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - mountPath: /init
+              name: scripts
+              subPath: init-api.sh
+              readOnly: true
+            - mountPath: /certs
+              name: certs
+              readOnly: true
+            - mountPath: /root/.kube/config
+              name: kubeconfig
+              subPath: config
+              readOnly: true
+      initContainers:
+        - name: init-certs
+          image: {{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          command:
+            - /init-certs
+          resources: {}
+          securityContext: {}
+          volumeMounts:
+            - mountPath: /init-certs
+              name: scripts
+              subPath: init-certs.sh
+              readOnly: true
+            - mountPath: /files-certs
+              name: tls
+              readOnly: true
+            - mountPath: /files-auth
+              name: auth
+              readOnly: true
+            - mountPath: /certs
+              name: certs
+      securityContext: {}
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
+      volumes:
+        - name: certs
+          emptyDir:
+            sizeLimit: 30Mi
+        - name: scripts
+          configMap:
+            name: {{ include "common.fullname" . }}-api-scripts
+            defaultMode: 493
+        - name: tls
+          secret:
+            secretName: {{ include "common.fullname" . }}-tls
+        - name: auth
+          secret:
+            secretName: {{ include "common.fullname" . }}-auth
+        # TODO: mount init scripts cm
+        - name: cloud-credentials
+          secret:
+            secretName: {{ include "common.fullname" . }}-cloud-credentials
+        - name: cloud-ssh-key
+          secret:
+            secretName: {{ include "common.fullname" . }}-cluster-ssh-key
+            defaultMode: 384
+        - name: kubeconfig
+          secret:
+            secretName: {{ include "common.fullname" . }}-auth
+            items:
+              - key: kubeconfig
+                path: config
+            defaultMode: 384

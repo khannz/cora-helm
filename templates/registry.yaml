@@ -1,0 +1,148 @@
+{{- if .Values.registry.enabled }}
+
+---
+# MARK: ConfigMap 'cora-registry-config'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "common.fullname" . }}-registry-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: registry
+data:
+  CP_API_JWT_ADMIN: {{ .Values.common.adminJwt }}
+  CP_API_SRV_EXTERNAL_HOST: {{ .Values.common.apiHost }}
+  CP_API_SRV_EXTERNAL_PORT: {{ default 443 .Values.common.apiPort | quote }}
+
+  CP_API_SRV_INTERNAL_HOST: {{ .Values.common.apiHost }}
+  CP_API_SRV_INTERNAL_PORT: {{ default 443 .Values.common.apiPort | quote }}
+
+  CP_CLOUD_CREDENTIALS_LOCATION: /root/.cloud/credentials
+  CP_CLOUD_PLATFORM: aws
+  CP_CLOUD_REGION_ID: {{ .Values.common.region }}
+  CP_DEPLOYMENT_ID: {{ .Values.common.deploymentName }}
+  # CP_DOCKER_AUTH_TYPE: "" #
+  CP_DOCKER_EXTERNAL_HOST: {{ .Values.registry.config.externalHost }}
+  CP_DOCKER_EXTERNAL_PORT: {{ default 443 .Values.registry.config.externalPort | quote }}
+  CP_DOCKER_INTERNAL_HOST: {{ .Values.registry.config.internalHost }}
+  CP_DOCKER_INTERNAL_PORT: {{ default 443 .Values.registry.config.internalPort | quote }}
+  # CP_DOCKER_NOTIFY_BACKOFF: "" #
+  # CP_DOCKER_NOTIFY_THRESHOLD: "" #
+  # CP_DOCKER_NOTIFY_TIMEOUT: "" #
+  # CP_DOCKER_STORAGE_CHUNKSIZE: "" #
+  CP_DOCKER_STORAGE_CONTAINER: {{ .Values.registry.config.bucketName }}
+  # CP_DOCKER_STORAGE_KEY_NAME: "" #
+  # CP_DOCKER_STORAGE_KEY_SECRET: "" #
+  # CP_DOCKER_STORAGE_REGION: "" #
+  CP_DOCKER_STORAGE_ROOT_DIR: /docker-pub/
+  CP_DOCKER_STORAGE_TYPE: obj
+
+---
+# MARK: Service 'cora-registry'
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "common.fullname" . }}-registry
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: registry
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: http
+    - name: https
+      protocol: TCP
+      port: 443
+      targetPort: https
+  selector:
+    {{- include "common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: registry
+
+---
+# MARK: Deployment 'cora-registry'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "common.fullname" . }}-registry
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: registry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: registry
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ .Values.registry.config | toYaml | sha256sum }}
+      labels:
+        {{- include "common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: registry
+    spec:
+      containers:
+        - name: registry
+          image: "{{ .Values.registry.image.repository }}:{{ .Values.registry.image.tag }}"
+          imagePullPolicy: {{ .Values.registry.image.pullPolicy }}
+          env:
+            - name: OTEL_TRACES_EXPORTER
+              value: none
+            - name: REGISTRY_HTTP_ADDR
+              value: 0.0.0.0:80
+            - name: REGISTRY_HTTP_SECRET
+              value: {{ .Values.registry.config.httpSecret }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "common.fullname" . }}-registry-config
+          ports:
+            - name: http
+              protocol: TCP
+              containerPort: 80
+            - name: https
+              protocol: TCP
+              containerPort: 443
+          resources: {}
+          volumeMounts:
+            - mountPath: /usr/local/share/ca-certificates/cp-api/ssl-public-cert.pem
+              name: tls
+              subPath: tls.crt
+              readOnly: true
+            - mountPath: /opt/docker-registry/pki/docker-public-cert.pem
+              name: tls
+              subPath: tls.crt
+              readOnly: true
+            - mountPath: /opt/docker-registry/pki/docker-private-key.pem
+              name: tls
+              subPath: tls.key
+              readOnly: true
+            - mountPath: /usr/local/share/ca-certificates/cp-api/jwt.key.x509
+              name: auth
+              subPath: jwt.key.x509
+              readOnly: true
+            - mountPath: /root/.cloud/credentials
+              name: cloud-creds
+              subPath: credentials
+              readOnly: true
+      securityContext: {}
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
+      volumes:
+        - name: tls
+          secret:
+            secretName: {{ include "common.fullname" . }}-tls
+        - name: auth
+          secret:
+            secretName: {{ include "common.fullname" . }}-auth
+        - name: cloud-creds
+          secret:
+            secretName: {{ include "common.fullname" . }}-cloud-credentials
+
+{{- end }}

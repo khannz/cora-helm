@@ -1,0 +1,141 @@
+# nameOverride: "cora"
+# fullnameOverride: "cora"
+
+# serviceAccount:
+#   create: true
+#   name: "cora"
+
+common:
+  ip: 127.0.0.1
+
+  apiHost: dev-op.xxx.com
+  apiPort: 443
+  deploymentName: CORA HELM
+  adminName: pipe_admin
+  adminEmail: pipe_admin@nowhere.com
+  dockerHost: dev-op-registry.xxx.com
+  dockerPort: 443
+  adminJwt: Put here ADMIN JWT token
+  region: us-east-1
+
+  tls:
+    crt: |
+      zxc
+    key: |
+      cxz
+  kubeconfig: |
+    Put here full kubeconfig that CORA would use to operate on cluster it live
+  cas: {}
+    # org-ca.crt: |
+    #   Put here each CA that CORA must recognise in a k/v format
+  jwts:
+    jwt.key.private: foo
+    jwt.key.public: bar
+    jwt.key.x509: fiz
+  idp:
+    federation.crt: |
+      Put here a cert from IDp
+    federation-metadata.xml: |
+      Put here an XML with IDp configuration
+  clusterSsh:
+    crt: |
+      Put here public part of SSH cert that would be used inside CORA
+    key: |
+      Put here private part of SSH cert that would be used inside CORA
+
+api:
+  image:
+    repository: "quay.io/lifescience/cloud-pipeline"
+    tag: "api-srv-0.17"
+    pullPolicy: IfNotPresent
+  config:
+    aws:
+      instanceProfileArn: ""
+      kmsArn: ""
+    db:
+      host: localhost
+      port: 5432
+      db: cora
+      user: postgres
+      pass: postgres
+      version: "16.8"
+      connParams: "?currentSchema=pipeline"
+      sharedBuffers: 128MB
+      maxConnections: 250
+    kube:
+      externalHost: 10.0.0.1
+      externalPort: 6443
+      kubeadmToken: ""
+      kubeadmCertHash: ""
+      nodeToken: ""
+    saml:
+      allowAnon: false
+      autoUserCreate: EXPLICIT_GROUP
+      userAttr: "Email=Email,FirstName=First Name,LastName=Last Name,Name=First Name"
+
+clair:
+  enabled: false
+  image:
+    repository: ""
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  db:
+    enabled: false
+    image:
+      repository: ""
+      tag: ""
+      pullPolicy: IfNotPresent
+
+dockerComp:
+  enabled: false
+  image:
+    repository: ""
+    tag: ""
+    pullPolicy: IfNotPresent
+
+edge:
+  image:
+    repository: "quay.io/lifescience/cloud-pipeline"
+    tag: "edge-0.17"
+    pullPolicy: IfNotPresent
+  externalIPs: []
+    # - 127.0.0.1
+  config:
+    host: dev-op-edge.xxx.com
+    port: 443
+
+registry:
+  enabled: false
+  image:
+    repository: quay.io/lifescience/cloud-pipeline
+    tag: registry-0.17-3.0.0
+    pullPolicy: IfNotPresent
+  config:
+    httpSecret: Put here long random string
+    externalHost: dev-op-registry.xxx.com
+    externalPort: 443
+    internalHost: dev-op-registry.xxx.com
+    internalPort: 443
+    bucketName: Put here bucket name where image blobs would be stored
+
+  proxy:
+    enabled: false
+    image:
+      repository: "nginx"
+      tag: "1.29.5"
+      pullPolicy: IfNotPresent
+
+  ui:
+    enabled: false
+    image:
+      repository: ""
+      tag: ""
+      pullPolicy: IfNotPresent
+
+weblogger:
+  enabled: false
+  image:
+    repository: ""
+    tag: ""
+    pullPolicy: IfNotPresent

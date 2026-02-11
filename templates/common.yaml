@@ -1,0 +1,66 @@
+---
+# MARK: Secret 'cora-tls'
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "common.fullname" . }}-tls
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: certificates
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ .Values.common.tls.crt | b64enc }}
+  tls.key: {{ .Values.common.tls.key | b64enc }}
+
+---
+# MARK: Secret 'cora-auth'
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "common.fullname" . }}-auth
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: certificates
+type: Opaque
+data:
+  kubeconfig: {{ .Values.common.kubeconfig | b64enc }}
+{{- range $key, $value := .Values.common.cas }}
+  {{ $key }}: {{ $value | b64enc }}
+{{- end }}
+{{- range $key, $value := .Values.common.idp }}
+  {{ $key }}: {{ $value | b64enc }}
+{{- end }}
+{{- range $key, $value := .Values.common.jwts }}
+  {{ $key }}: {{ $value | b64enc }}
+{{- end }}
+
+---
+# MARK: Secret 'cora-cloud-credentials'
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "common.fullname" . }}-cloud-credentials
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: deprecated
+type: Opaque
+data:
+  credentials: SW5zdGFuY2UgUm9sZSBTdHViCg==
+
+---
+# MARK: Secret 'cora-cluster-ssh-key'
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "common.fullname" . }}-cluster-ssh-key
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cluster-ssh-key
+type: Opaque
+data:
+  deploy.pub: {{ .Values.common.clusterSsh.crt | b64enc }}
+  deploy.key: {{ .Values.common.clusterSsh.key | b64enc }}
