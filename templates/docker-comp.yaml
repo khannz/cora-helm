@@ -1,0 +1,76 @@
+{{- if .Values.dockerComp.enabled }}
+
+# MARK: Service 'cora-docker-comp'
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "common.fullname" . }}-docker-comp
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: docker-comp
+    # cloud-pipeline/cp-docker-comp: "true"
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      protocol: TCP
+      port: 8080
+      targetPort: http
+  selector:
+    {{- include "common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: docker-comp
+
+# MARK: Deployment 'cora-docker-comp'
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "common.fullname" . }}-docker-comp
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: docker-comp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: docker-comp
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ .Values.dockerComp | toYaml | sha256sum }}
+      labels:
+        {{- include "common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: docker-comp
+    spec:
+      containers:
+        - name: docker-comp
+          image: "{{ .Values.dockerComp.image.repository }}:{{ .Values.dockerComp.image.tag }}"
+          command:
+            - java
+            - -jar
+            - /opt/docker-comp/docker-comp-scan.jar
+            - --spring.config.location=file:/opt/docker-comp/config/application.properties
+          env:
+            - name: CP_DOCKER_COMP_WORKING_DIR
+              value: /opt/docker-comp/wd
+          ports:
+            - name: http
+              protocol: TCP
+              containerPort: 8080
+          resources: {}
+          volumeMounts:
+            - name: workdir
+              mountPath: /opt/docker-comp/wd
+      securityContext: {}
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
+      volumes:
+        - name: workdir
+          emptyDir: {}
+
+{{- end }}

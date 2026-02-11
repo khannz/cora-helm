@@ -1,0 +1,123 @@
+{{- if and .Values.registry.enabled .Values.registry.proxy.enabled }}
+
+# MARK: ConfigMap 'cora-registry-proxy'
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "common.fullname" }}-registry-proxy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: registry-proxy
+data:
+  registry.conf: |
+    server {
+      listen 443 ssl;
+      server_name _;
+
+      ...
+    }
+
+    server {
+      listen 80;
+      server_name _;
+      return 301 https://$host$request_uri;
+    }
+
+# MARK: Secret 'cora-registry-proxy-tls'
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "common.fullname" . }}-registry-proxy-tls
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: registry-proxy
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ .Values.registry.proxy.tls.crt | quote }}
+  tls.key: {{ .Values.registry.proxy.tls.key | quote }}
+
+# MARK: ConfigMap 'cora-registry-proxy'
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "common.fullname" . }}-registry
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: registry-proxy
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: http
+    - name: https
+      protocol: TCP
+      port: 443
+      targetPort: https
+  selector:
+    {{- include "common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: registry-proxy
+
+# MARK: Deployment 'cora-registry-proxy'
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "common.fullname" . }}-registry-proxy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: registry-proxy
+    # cloud-pipeline/cp-docker-registry: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: registry-proxy
+      # cloud-pipeline/cp-docker-registry: "true"
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ .Values.registry.config | toYaml | sha256sum }}
+      labels:
+        {{- include "common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: registry-proxy
+        # cloud-pipeline/cp-docker-registry: "true"
+    spec:
+      containers:
+        - name: nginx
+          image: "{{ .Values.registry.proxy.image.repository }}:{{ .Values.registry.proxy.image.tag }}"
+          ports:
+            - name: http
+              protocol: TCP
+              containerPort: 80
+            - name: https
+              protocol: TCP
+              containerPort: 443
+          resources: {}
+          volumeMounts:
+            - name: tls
+              mountPath: /etc/nginx/ssl
+            - name: conf
+              mountPath: /etc/nginx/conf.d
+      securityContext: {}
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
+      volumes:
+        - name: tls
+          secret:
+            secretName: {{ include "common.fullname" . }}-registry-proxy-tls
+        - name: conf
+          configMap:
+            name: {{ include "common.fullname" . }}-registry-proxy
+
+{{- end }}

@@ -1,0 +1,20 @@
+# MARK: ConfigMap 'cora-global-config'
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "common.fullname" . }}-global-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: global-config
+data:
+  # CP_API_SECURITY_PUBLIC_URLS: /init.sh,/launch.sh,/launch.py,/PipelineCLI.tar.gz,/pipe-common.tar.gz,/commit-run-scripts/**,/pipe,/fsbrowser.tar.gz,/gpustat.tar.gz,/pipe.zip,/pipe.tar.gz,/pipe-el6,/pipe-el6.tar.gz,/cloud-data-linux.tar.gz,/cloud-data-cli-linux,/fsautoscale.sh,/emergency_node_terminator.sh,/data-transfer-service.jar,/data-transfer-service-linux.zip,/DeployDts.ps1,/deploy_dts.sh,
+  # CP_API_SECURITY_PUBLIC_URLS: /init.sh,/launch.sh,/launch.py,/PipelineCLI.tar.gz,/pipe-common.tar.gz,/commit-run-scripts/**,/pipe,/fsbrowser.tar.gz,/gpustat.tar.gz,/pipe.zip,/pipe.tar.gz,/pipe-el6,/pipe-el6.tar.gz,/pipe-osx,/pipe-osx.tar.gz,/pipe-osx-arm,/pipe-osx-arm.tar.gz,/cloud-data-linux.tar.gz,/cloud-data-win64.zip,/cloud-data-cli-linux,/cloud-data-cli-macos,/cloud-data-cli-win.exe,/fsautoscale.sh,/emergency_node_terminator.sh,/data-transfer-service.jar,/data-transfer-service-windows.zip,/data-transfer-service-linux.zip,/DeployDts.ps1,/deploy_dts.sh,
+  CP_API_SECURITY_PUBLIC_URLS: /init.sh,/launch.sh,
+  CP_API_SRV_SAML_AUTO_USER_CREATE: EXPLICIT_GROUP
+  # CP_API_SRV_SAML_AUTO_USER_CREATE: AUTO,EXPLICIT,EXPLICIT_GROUP
+  CP_API_SRV_SAML_USER_ATTRIBUTES: Email=Email,FirstName=First Name,LastName=Last Name,Name=First Name
+  CP_API_SRV_SAML_ALLOW_ANONYMOUS_USER: "false"
+  CP_SERVICES_ENABLED: cp-api-srv,cp-docker-registry,cp-edge,cp-clair,cp-docker-comp
+  # CP_SERVICES_ENABLED: cp-api-db,cp-api-srv,cp-docker-registry,cp-edge,cp-clair,cp-docker-comp,cp-heapster

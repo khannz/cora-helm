@@ -1,0 +1,54 @@
+# nameOverride: "cora"
+# fullnameOverride: "cora"
+
+# serviceAccount:
+#   create: true
+#   name: "cora"
+
+clair:
+  enabled: false
+  image:
+    repository: ""
+    tag: ""
+
+  db:
+    enabled: false
+    image:
+      repository: ""
+      tag: ""
+
+dockerComp:
+  enabled: false
+  image:
+    repository: ""
+    tag: ""
+
+edge:
+  enabled: false
+  image:
+    repository: ""
+    tag: ""
+
+registry:
+  enabled: false
+  image:
+    repository: ""
+    tag: ""
+
+  proxy:
+    enabled: false
+    image:
+      repository: ""
+      tag: ""
+
+  ui:
+    enabled: false
+    image:
+      repository: ""
+      tag: ""
+
+weblogger:
+  enabled: false
+  image:
+    repository: ""
+    tag: ""
